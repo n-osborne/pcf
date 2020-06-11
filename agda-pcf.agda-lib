@@ -1,0 +1,3 @@
+name    : agda-pcf
+depend  : standard-library
+include : agda
