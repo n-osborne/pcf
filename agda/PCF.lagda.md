@@ -67,22 +67,19 @@ data Term : Context -> Ty -> Set where
     -----------
     -> Term Γ τ
 
-  ƛ_∙_ : {Γ : Context}{τ : Ty}(α : Ty)
-    -> (t : Term (α ∷ Γ) τ)
+  ƛ_∙_ : {Γ : Context}{τ : Ty}
+    -> (α : Ty)
+    -> Term (α ∷ Γ) τ
     -----------------------
     -> Term Γ (α ⇒ τ) 
 
-  ⦅_⦆_ : {Γ : Context}{τ α : Ty}
-    -> (f : Term Γ (α ⇒ τ))
-    -> (a : Term Γ α)
+  _$_ : {Γ : Context}{τ α : Ty}
+    -> Term Γ (α ⇒ τ)
+    -> Term Γ α
     -----------------
     -> Term Γ τ
 
-  tt : {Γ : Context}
-    -----------
-    -> Term Γ o
-
-  ff : {Γ : Context}
+  tt ff : {Γ : Context}
     -----------
     -> Term Γ o
 
@@ -91,12 +88,7 @@ data Term : Context -> Ty -> Set where
     -----------
     -> Term Γ ι
 
-  _+1 : {Γ : Context}
-    -> Term Γ ι
-    -----------
-    -> Term Γ ι
-
-  _∸1 : {Γ : Context}
+  _+1 _∸1 : {Γ : Context}
     -> Term Γ ι
     -----------
     -> Term Γ ι
@@ -159,7 +151,7 @@ extend the map when we cross a binder, so we won't rename it.
 rename : ∀ {Γ Δ} -> (∀ {τ} -> τ ∈ Γ -> τ ∈ Δ) -> ∀ {τ} -> Term Γ τ -> Term Δ τ
 rename m (var x) = var (m x)
 rename m (ƛ α ∙ t) = ƛ α ∙ rename (extend m) t
-rename m (⦅ f ⦆ a) = ⦅ rename m f ⦆ rename m a
+rename m (f $ a) = rename m f $ rename m a
 rename m tt = tt
 rename m ff = tt
 rename m (k x) = k x
@@ -196,7 +188,7 @@ extends m (tl prf) = rename tl (m prf)
 substitution : ∀ {Γ Δ} -> (∀ {τ} -> τ ∈ Γ -> Term Δ τ) -> ∀ {τ} -> Term Γ τ -> Term Δ τ
 substitution m (var x) = m x
 substitution m (ƛ α ∙ t) = ƛ α ∙ substitution (extends m) t
-substitution m (⦅ t ⦆ t₁) = ⦅ substitution m t ⦆ substitution m t₁
+substitution m (t $ t₁) = substitution m t $ substitution m t₁
 substitution m tt = tt
 substitution m ff = tt
 substitution m (k n) = k n
