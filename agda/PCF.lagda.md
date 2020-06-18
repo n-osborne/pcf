@@ -44,6 +44,9 @@ data _∈_ : Ty -> Context -> Set where
   hd : {Γ : Context}{τ : Ty} -> τ ∈ (τ ∷ Γ)
   tl : {Γ : Context}{τ σ : Ty} -> τ ∈ Γ -> τ ∈ (σ ∷ Γ)
 
+data _∋_ : Context -> Ty -> Set where
+  z : ∀ {Γ τ} -> (τ ∷ Γ) ∋ τ
+  s : ∀ {Γ τ σ} -> Γ ∋ τ -> (σ ∷ Γ) ∋ τ 
 ```
 
 A term depends on the context in which it is valid and its type.
@@ -63,12 +66,11 @@ We want to have:
 data Term : Context -> Ty -> Set where
 
   var : {Γ : Context}{τ : Ty}
-    -> τ ∈ Γ
+    -> Γ ∋ τ
     -----------
     -> Term Γ τ
 
-  ƛ_∙_ : {Γ : Context}{τ : Ty}
-    -> (α : Ty)
+  ƛ_ : {Γ : Context}{τ α : Ty}
     -> Term (α ∷ Γ) τ
     -----------------------
     -> Term Γ (α ⇒ τ) 
@@ -106,115 +108,50 @@ data Term : Context -> Ty -> Set where
     -> Term Γ τ
     
   Y_ : {Γ : Context}{τ : Ty}
-    -> Term Γ (τ ⇒ τ)
+    -> Term (τ ∷ Γ) τ
     -----------------
     -> Term Γ τ
 
 ```
 
-Comes the substitution definition. In order to express the semantic of
-PCF, we have to be able to define the subsitution operation of a
-variable in a term.
-
-According to *plfa* this formalisation of renaming and substitution
-is due to McBride, but we are still unable to identify a reference.
-
-As a substitution make a variable disapear (the one that is replaced
-by a term), the context of the term on which the substitution operates
-is changed. This operation of changing the context is called `renaming`
-
-We'll need to have an auxilary functions that extends a context, that
-is, given a map from a membership proof in a context Γ to a membership
-proof, for the same type, in a context Δ, the `extend` function
-compute a the map from the membership proof of a type in the context Γ
-extended with another type to the membership proof of the same type in
-the context Δ extended in the same way. This auxiliary function will
-be used when we cross a binder (in our case, when we enter in the body
-of a lambda abstraction).
-
-```agda
-
-extend : ∀ {Γ Δ} -> (∀ {τ} -> τ ∈ Γ -> τ ∈ Δ) -> ∀ {τ σ} -> τ ∈ (σ ∷ Γ) -> τ ∈ (σ ∷ Δ)
-extend m hd = hd
-extend m (tl prf) = tl (m prf)
-
 ```
+record Kit (_◆_ : Context -> Ty -> Set) : Set where
+  constructor kit
+  field
+    vr : ∀ {Γ τ} -> Γ ∋ τ -> Γ ◆ τ
+    tm : ∀ {Γ τ} -> Γ ◆ τ -> Term Γ τ
+    wk : ∀ {Γ τ σ} -> Γ ◆ τ -> (σ ∷ Γ) ◆ τ
 
-Then we can define renaming. Given a map as above and a Term of type τ
-in context Γ, the `rename` function computes the equivalent term in
-the context Δ. Concretly, to rename a term means to apply the given
-map to the variable identifier (which are membership proof) and to
-extend the map when we cross a binder, so we won't rename it.
+lift : ∀ {Γ Δ τ σ}{_◆_ : Context -> Ty -> Set} -> Kit _◆_ -> (∀ {υ} -> Γ ∋ υ -> Δ ◆ υ) -> (σ ∷ Γ) ∋ τ -> (σ ∷ Δ) ◆ τ
+lift (kit vr tm wk) μ z = vr z
+lift (kit vr tm wk) μ (s v) = wk (μ v)
 
-```agda
+trav : ∀ {Γ Δ τ}{_◆_ : Context -> Ty -> Set} -> Kit (_◆_) -> (∀ {υ} -> Γ ∋ υ -> Δ ◆ υ) -> Term Γ τ -> Term Δ τ
+trav (kit vr tm wk) μ (var x) = tm (μ x)
+trav K μ (ƛ t)                = ƛ trav K (lift K μ) t
+trav K μ (t $ t₁)             = trav K μ t $ trav K μ t₁
+trav K μ tt                   = tt
+trav K μ ff                   = tt
+trav K μ (k n)                = k n
+trav K μ (t +1)               = (trav K μ t) +1
+trav K μ (t ∸1)               = trav K μ t ∸1
+trav K μ (t ≟0)               = (trav K μ t) ≟0
+trav K μ (t ¿ t₁ ⦂ t₂)        = trav K μ t ¿ trav K μ t₁ ⦂ trav K μ t₂
+trav K μ (Y t)                = Y trav K (lift K μ) t
 
-rename : ∀ {Γ Δ} -> (∀ {τ} -> τ ∈ Γ -> τ ∈ Δ) -> ∀ {τ} -> Term Γ τ -> Term Δ τ
-rename m (var x) = var (m x)
-rename m (ƛ α ∙ t) = ƛ α ∙ rename (extend m) t
-rename m (f $ a) = rename m f $ rename m a
-rename m tt = tt
-rename m ff = tt
-rename m (k x) = k x
-rename m (t +1) = (rename m t) +1
-rename m (t ∸1) = (rename m t) ∸1
-rename m (t ≟0) = (rename m t) ≟0
-rename m (t ¿ t₁ ⦂ t₂) = rename m t ¿ rename m t₁ ⦂ rename m t₂
-rename m (Y t) = Y rename m t
+rename : ∀ {Γ Δ τ} -> (∀ {υ} -> Γ ∋ υ -> Δ ∋ υ) -> (Term Γ τ -> Term Δ τ)
+rename μ = trav (kit (λ x -> x) var s) μ
 
-```
-
-In order to implement substitution, we'll also need to extend a map,
-but this time, the map is between a proof of membership in a context
-to a term in another context. The proof of membership in the context Γ
-is the identifier of the variable in the context Γ (the context of the
-term on which the substitution is operated). We want to replace the
-occurrences of a variable by a term, but the context of the term is
-not necessarily the same as the one of the initial term. So we need to
-be able to map the proof of membership in a context Γ to a Term valid
-in a context Δ.
-
-Then, substitution is really simililar to renaming:
-
-- in case of a var, we apply the map to the membership proof to compute the term
-- in case of a lambda abstraction, we call substitution on the body with an extended map
-- in the other cases, we proceed recursively
-
-```agda
-
-extends : ∀ {Γ Δ} -> (∀ {τ} -> τ ∈ Γ -> Term Δ τ) -> ∀ {τ σ} -> τ ∈ (σ ∷ Γ) -> Term (σ ∷ Δ) τ
-extends m hd = var hd
-extends m (tl prf) = rename tl (m prf)
-
-substitution : ∀ {Γ Δ} -> (∀ {τ} -> τ ∈ Γ -> Term Δ τ) -> ∀ {τ} -> Term Γ τ -> Term Δ τ
-substitution m (var x) = m x
-substitution m (ƛ α ∙ t) = ƛ α ∙ substitution (extends m) t
-substitution m (t $ t₁) = substitution m t $ substitution m t₁
-substitution m tt = tt
-substitution m ff = tt
-substitution m (k n) = k n
-substitution m (t +1) = (substitution m t) +1
-substitution m (t ∸1) = (substitution m t) ∸1
-substitution m (t ≟0) = (substitution m t) ≟0
-substitution m (t ¿ t₁ ⦂ t₂) = substitution m t ¿ substitution m t₁ ⦂ substitution m t₂
-substitution m (Y t) = Y substitution m t
-
-```
-
-Now we can specialize `substitution`. The final function takes the
-body of a lambda abstraction (a term valid in the context σ ∷ Γ, σ
-being the type of the binder) and a term of type σ valid in Γ. The
-idea is to call `substitution` on the body of the lambda abstraction
-with the map m defined to replace occurences of the variable bound to
-this abstraction by the given term. `substitution` will take care of
-extending the map whe crossing internal binder.
-
-```agda
+substitution : ∀ {Γ Δ τ} -> (∀ {υ} -> Γ ∋ υ -> Term Δ υ) -> (Term Γ τ -> Term Δ τ)
+substitution μ = trav (kit var (λ x → x) (rename s))μ
 
 _[_] : ∀ {Γ τ σ} -> Term (σ ∷ Γ) τ -> Term Γ σ -> Term Γ τ
-_[_] {Γ}{τ}{σ} N M = substitution {σ ∷ Γ} {Γ} m {τ} N
+_[_] {Γ}{τ}{σ} F A = substitution {σ ∷ Γ}{Γ}{τ} μ F
   where
-    m : ∀ {τ} -> τ ∈ (σ ∷ Γ) -> Term Γ τ
-    m hd = M
-    m (tl x) = var x
-
+    μ : ∀ {υ} -> (σ ∷ Γ) ∋ υ -> Term Γ υ
+    μ z = A
+    μ (s x) = var x
 ```
+
+
+
